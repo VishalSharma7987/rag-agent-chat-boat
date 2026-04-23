@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import VoiceInput from './voice/VoiceInput';
 
-const InputBar = ({ onSend, onVoice, disabled }) => {
+const InputBar = ({ onSend, disabled }) => {
   const [input, setInput] = useState('');
 
   const handleSubmit = (e) => {
@@ -31,7 +30,6 @@ const InputBar = ({ onSend, onVoice, disabled }) => {
           rows={1}
         />
         <div className="absolute right-2 bottom-2 flex items-center space-x-2">
-          <VoiceInput onResult={onVoice || onSend} disabled={disabled} />
           <button
             type="submit"
             disabled={!input.trim() || disabled}
