@@ -13,7 +13,7 @@ const config = require('./config');
 const logger = require('./utils/logger');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
-// ── Routes ──────────────────────────────────────────────────────────
+// ── Routes ──────────────────────────────────────────
 const uploadRoute = require('./routes/upload');
 const chatRoute = require('./routes/chat');
 const healthRoute = require('./routes/health');
@@ -24,10 +24,13 @@ const filesRoute = require('./routes/files');
 // ════════════════════════════════════════════════════
 const app = express();
 
-// ── Security headers ─────────────────────────────────────────────────
+// 🔥 IMPORTANT FIX (Vercel proxy support)
+app.set('trust proxy', true);
+
+// ── Security headers ────────────────────────────────
 app.use(helmet());
 
-// ── CORS ─────────────────────────────────────────────────────────────
+// ── CORS ────────────────────────────────────────────
 app.use(
   cors({
     origin: config.server.nodeEnv === 'production' ? false : '*',
@@ -35,24 +38,25 @@ app.use(
   })
 );
 
-// ── Request logging (HTTP) ───────────────────────────────────────────
+// ── Logging ─────────────────────────────────────────
 app.use(
   morgan('combined', {
     stream: { write: (msg) => logger.info(msg.trim()) },
-    skip: (req) => req.url === '/health', // skip noisy health logs
+    skip: (req) => req.url === '/health',
   })
 );
 
-// ── Body parsers ─────────────────────────────────────────────────────
+// ── Body parsers ────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ── Global rate limiter ──────────────────────────────────────────────
+// ── Global rate limiter ─────────────────────────────
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,                  // 100 requests per window per IP
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip, // 🔥 FIX
   message: {
     success: false,
     error: 'Too many requests. Please wait before retrying.',
@@ -60,24 +64,26 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-// ── Stricter limiter for LLM-intensive /chat route ───────────────────
+// ── Chat limiter ────────────────────────────────────
 const chatLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 20,             // 20 queries per minute per IP
+  windowMs: 60 * 1000,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip, // 🔥 FIX
   message: {
     success: false,
     error: 'Chat rate limit exceeded. Please wait a moment.',
   },
 });
 
-// ── Upload rate limiter ───────────────────────────────────────────────
+// ── Upload limiter ──────────────────────────────────
 const uploadLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5,              // 5 uploads per minute per IP
+  windowMs: 60 * 1000,
+  max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip, // 🔥 FIX
   message: {
     success: false,
     error: 'Upload rate limit exceeded. Please wait before uploading again.',
@@ -85,28 +91,23 @@ const uploadLimiter = rateLimit({
 });
 
 // ════════════════════════════════════════════════════
-//  Route Registration
+//  Routes
 // ════════════════════════════════════════════════════
 app.use('/health', healthRoute);
 app.use('/upload', uploadLimiter, uploadRoute);
 app.use('/chat', chatLimiter, chatRoute);
 app.use('/files', filesRoute);
 
-// Root welcome message
+// Root
 app.get('/', (req, res) => {
   res.json({
     name: 'RAG Agent API',
     version: '1.0.0',
-    description: 'Production-ready RAG system: PDF ingestion + semantic Q&A',
-    endpoints: {
-      'POST /upload': 'Upload a PDF and index it in Pinecone',
-      'POST /chat':   'Ask a question — get a document-grounded answer',
-      'GET  /health': 'Service health check',
-    },
+    description: 'Production-ready RAG system',
   });
 });
 
-// ── 404 & Global Error Handlers (must be last) ───────────────────────
+// ── Error handlers ──────────────────────────────────
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -116,41 +117,16 @@ app.use(errorHandler);
 const PORT = config.server.port;
 
 const server = app.listen(PORT, () => {
-  logger.info('══════════════════════════════════════════════');
-  logger.info(`  RAG Agent API — ${config.server.nodeEnv.toUpperCase()}`);
-  logger.info(`  Listening on: http://localhost:${PORT}`);
-  logger.info(`  Pinecone Index: ${config.pinecone.indexName}`);
-  logger.info(`  Embedding Model: ${config.huggingface.embeddingModel}`);
-  logger.info(`  LLM Model: ${config.groq.model}`);
-  logger.info('══════════════════════════════════════════════');
+  logger.info(`Server running on port ${PORT}`);
 });
 
-// ── Graceful shutdown ─────────────────────────────────────────────────
-function gracefulShutdown(signal) {
-  logger.info(`[Server] ${signal} received. Shutting down gracefully...`);
-  server.close(() => {
-    logger.info('[Server] HTTP server closed. Exiting.');
-    process.exit(0);
-  });
-
-  // Force exit if shutdown takes too long
-  setTimeout(() => {
-    logger.error('[Server] Forced shutdown after timeout');
-    process.exit(1);
-  }, 10000);
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-// ── Unhandled rejection safety net ───────────────────────────────────
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('[Server] Unhandled Rejection:', { reason: String(reason) });
+// ── Shutdown ────────────────────────────────────────
+process.on('SIGTERM', () => {
+  server.close(() => process.exit(0));
 });
 
-process.on('uncaughtException', (err) => {
-  logger.error('[Server] Uncaught Exception:', { error: err.message });
-  process.exit(1);
+process.on('SIGINT', () => {
+  server.close(() => process.exit(0));
 });
 
 module.exports = app;
