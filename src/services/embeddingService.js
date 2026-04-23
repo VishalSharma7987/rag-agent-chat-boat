@@ -1,32 +1,46 @@
 'use strict';
 
-const { pipeline, env } = require('@xenova/transformers');
+let pipeline, env; // 🔥 dynamic load ke liye
+
 const config = require('../config');
 const logger = require('../utils/logger');
 const { batchArray } = require('../utils/helpers');
 const cacheService = require('./cacheService');
 
-// 🔥 NEW: Xenova local embedding implementation
-// Ensure it uses local cache properly and avoids browser-specific settings
-env.allowLocalModels = true; 
-env.useBrowserCache = false; 
-
 let extractorPipeline = null;
 
+// 🔥 FIX: Dynamic import for ESM
+async function loadTransformers() {
+  if (!pipeline) {
+    const module = await import('@xenova/transformers');
+    pipeline = module.pipeline;
+    env = module.env;
+
+    // same config as before
+    env.allowLocalModels = true;
+    env.useBrowserCache = false;
+  }
+}
+
 /**
- * 🔥 NEW: Xenova local embedding implementation
- * Initializes and returns the Xenova transformer pipeline (singleton).
- * Model: Xenova/all-MiniLM-L6-v2
+ * Model loader (same logic as before)
  */
 async function getModel() {
   if (extractorPipeline) return extractorPipeline;
 
   try {
+    await loadTransformers(); // 🔥 FIX HERE
+
     logger.info('[EmbeddingService] Loading local model (Xenova/all-MiniLM-L6-v2)...');
-    // Initializes pipeline for feature-extraction using the lightweight all-MiniLM-L6-v2
-    extractorPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+
+    extractorPipeline = await pipeline(
+      'feature-extraction',
+      'Xenova/all-MiniLM-L6-v2'
+    );
+
     logger.info('[EmbeddingService] Model loaded successfully');
     return extractorPipeline;
+
   } catch (error) {
     logger.error(`[EmbeddingService] Failed to load local model: ${error.message}`);
     throw new Error(`Model loading failed: ${error.message}`);
@@ -34,12 +48,7 @@ async function getModel() {
 }
 
 /**
- * Generates embeddings for an array of text strings.
- * Process texts sequentially using the local model.
- * Results are cached by MD5 hash of the text.
- *
- * @param {string[]} texts
- * @returns {Promise<number[][]>} Array of embedding vectors
+ * Generate embeddings (NO CHANGE)
  */
 async function generateEmbeddings(texts) {
   if (!texts || texts.length === 0) {
@@ -48,64 +57,49 @@ async function generateEmbeddings(texts) {
 
   logger.info(`[EmbeddingService] Generating embeddings for ${texts.length} text(s)`);
 
-  const BATCH_SIZE = 5; // Reduced default batch size to be safer for local sequential runs
+  const BATCH_SIZE = 5;
   const batches = batchArray(texts, BATCH_SIZE);
   const allEmbeddings = [];
 
-  // Initialize/Load model at the start of generation
   const extractor = await getModel();
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
-    logger.debug(`[EmbeddingService] Processing batch ${i + 1}/${batches.length} (size: ${batch.length})`);
 
-    // Build cache keys for this batch
     const cacheHits = [];
     const misses = [];
-    const missIndices = [];
 
     for (let j = 0; j < batch.length; j++) {
       const key = `emb:${Buffer.from(batch[j]).toString('base64').substring(0, 64)}`;
       const cached = cacheService.get(key);
+
       if (cached) {
         cacheHits[j] = cached;
       } else {
         misses.push(batch[j]);
-        missIndices.push(j);
       }
     }
 
     let fetchedEmbeddings = [];
-    if (misses.length > 0) {
-      // 🔥 NEW: Xenova local embedding implementation
-      for (let k = 0; k < misses.length; k++) {
-        const text = misses[k];
-        logger.debug(`[EmbeddingService] Processing text ${k + 1}/${misses.length}`);
-        
-        try {
-          // feature-extraction automatically returns [1, 384] tensor when pooling is configured
-          const output = await extractor(text, { pooling: 'mean', normalize: true });
-          
-          // Convert Xenova Tensor Float32Array down to standard JavaScript Array of numbers
-          const embeddingVector = Array.from(output.data);
-          fetchedEmbeddings.push(embeddingVector);
-          logger.debug('[EmbeddingService] Embedding completed');
-        } catch (err) {
-          logger.error(`[EmbeddingService] Failed to embed text: ${err.message}`);
-          throw new Error('Local embedding generation failed');
-        }
-      }
 
-      // Cache the newly fetched embeddings
-      misses.forEach((text, idx) => {
-        const key = `emb:${Buffer.from(text).toString('base64').substring(0, 64)}`;
-        cacheService.set(key, fetchedEmbeddings[idx]);
-      });
+    for (let text of misses) {
+      try {
+        const output = await extractor(text, { pooling: 'mean', normalize: true });
+        fetchedEmbeddings.push(Array.from(output.data));
+      } catch (err) {
+        logger.error(`[EmbeddingService] Failed to embed text: ${err.message}`);
+        throw new Error('Local embedding generation failed');
+      }
     }
 
-    // Merge hits and fetched into correct order
-    const batchResult = new Array(batch.length);
+    misses.forEach((text, idx) => {
+      const key = `emb:${Buffer.from(text).toString('base64').substring(0, 64)}`;
+      cacheService.set(key, fetchedEmbeddings[idx]);
+    });
+
+    const batchResult = [];
     let fetchIdx = 0;
+
     for (let j = 0; j < batch.length; j++) {
       if (cacheHits[j]) {
         batchResult[j] = cacheHits[j];
@@ -117,16 +111,12 @@ async function generateEmbeddings(texts) {
     allEmbeddings.push(...batchResult);
   }
 
-  logger.info(`[EmbeddingService] ✅ Embeddings created for ${allEmbeddings.length} chunk(s)`);
+  logger.info(`[EmbeddingService] ✅ Embeddings created for ${allEmbeddings.length}`);
   return allEmbeddings;
 }
 
 /**
- * Generates a single embedding for a query string.
- * Uses caching to avoid redundant API calls.
- *
- * @param {string} text
- * @returns {Promise<number[]>} single embedding vector
+ * Query embedding (NO CHANGE)
  */
 async function generateQueryEmbedding(text) {
   if (!text || typeof text !== 'string') {
@@ -135,26 +125,25 @@ async function generateQueryEmbedding(text) {
 
   const cacheKey = `qemb:${Buffer.from(text).toString('base64').substring(0, 64)}`;
   const cached = cacheService.get(cacheKey);
-  if (cached) {
-    logger.debug('[EmbeddingService] Query embedding served from cache');
-    return cached;
-  }
 
-  logger.info('[EmbeddingService] Generating query embedding');
+  if (cached) return cached;
 
-  // 🔥 NEW: Xenova local embedding implementation
   const extractor = await getModel();
-  
+
   try {
     const output = await extractor(text, { pooling: 'mean', normalize: true });
     const embedding = Array.from(output.data);
 
     cacheService.set(cacheKey, embedding);
     return embedding;
+
   } catch (err) {
     logger.error(`[EmbeddingService] Failed to embed query: ${err.message}`);
     throw new Error('Local query embedding generation failed');
   }
 }
 
-module.exports = { generateEmbeddings, generateQueryEmbedding };
+module.exports = {
+  generateEmbeddings,
+  generateQueryEmbedding,
+};
