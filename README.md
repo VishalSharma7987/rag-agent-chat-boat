@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🤖 RAG Agent Demo
 
 A **production-ready Retrieval-Augmented Generation (RAG)** backend API built with:
@@ -159,3 +160,6 @@ Create the index in the Pinecone Console:
 - ✅ **Structured JSON responses** — every endpoint returns `{ answer, source, confidence }`
 - ✅ **Confidence scoring** — based on Pinecone similarity scores
 - ✅ **Fallback responses** — no results / LLM failure / parse failure
+=======
+# rag-agent-chat-boat
+>>>>>>> 64f473ae200a5a238e02cec447f00682913942aa
