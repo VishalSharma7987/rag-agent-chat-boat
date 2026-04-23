@@ -1,18 +1,12 @@
 import React, { useState } from 'react';
 import ChatBox from './components/ChatBox';
 import InputBar from './components/InputBar';
-import UploadButton from './components/UploadButton';
-import UploadModal from './components/UploadModal';
-import DocumentDrawer from './components/DocumentDrawer';
 import { sendMessage } from './services/api';
+import ReferenceDocument from './components/ReferenceDocument';
 
 const App = () => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [isDocumentDrawerOpen, setIsDocumentDrawerOpen] = useState(false);
-  // Incrementing this tells DocumentDrawer to re-fetch the file list
-  const [docRefreshTick, setDocRefreshTick] = useState(0);
   const [isClearing, setIsClearing] = useState(false);
   const handleClearChat = async () => {
     setIsClearing(true);
@@ -23,8 +17,6 @@ const App = () => {
     setMessages([]);
     setIsClearing(false);
   };
-
-  const triggerDocRefresh = () => setDocRefreshTick((t) => t + 1);
 
   const handleSendMessage = async (text) => {
     const userMessage = {
@@ -63,7 +55,7 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gray-100/50 flex flex-col md:items-center md:justify-center md:p-6 font-sans">
-      <div className="w-full max-w-4xl bg-white md:shadow-2xl md:rounded-3xl overflow-hidden flex flex-col h-[100dvh] md:h-[85vh] border-0 md:border md:border-gray-200">
+      <div className="w-full max-w-6xl bg-white md:shadow-2xl md:rounded-3xl overflow-hidden flex flex-col h-[100dvh] md:h-[85vh] border-0 md:border md:border-gray-200">
 
         {/* ── Header ── */}
         <header className="bg-white border-b border-gray-100 p-4 px-6 flex items-center justify-between shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] z-10 transition-all">
@@ -83,23 +75,6 @@ const App = () => {
           </div>
 
           <div className="flex gap-2">
-            {/* Documents panel trigger */}
-            <button
-              id="open-documents-btn"
-              onClick={() => setIsDocumentDrawerOpen(true)}
-              className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors"
-              title="Manage Documents"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-              </svg>
-            </button>
-
-            {/* Upload button */}
-            <UploadButton
-              isOpen={isUploadModalOpen}
-              onClick={() => setIsUploadModalOpen(!isUploadModalOpen)}
-            />
             {/* refresh button */}
             <button
               onClick={handleClearChat}
@@ -120,33 +95,20 @@ const App = () => {
           </div>
         </header>
 
-        {/* ── Chat Area ── */}
-        <ChatBox messages={messages} isLoading={isLoading} />
+        {/* ── Main Content Area (Two Columns) ── */}
+        <div className="flex-1 flex lg:flex-row flex-col-reverse overflow-hidden bg-gray-50/30">
+          
+          {/* Left Column: Chat Area */}
+          <div className="lg:w-[70%] w-full flex flex-col h-full bg-white relative">
+            <ChatBox messages={messages} isLoading={isLoading} />
+            <InputBar onSend={handleSendMessage} disabled={isLoading} />
+          </div>
 
-        {/* ── Input ── */}
-        <InputBar onSend={handleSendMessage} disabled={isLoading} />
+          {/* Right Column: Reference Sidebar */}
+          <ReferenceDocument />
+        </div>
       </div>
 
-      {/* ── Upload Modal ── */}
-      <UploadModal
-        isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
-        onUploadDone={() => {
-          triggerDocRefresh();         // refresh drawer list
-          setIsUploadModalOpen(false); // close modal
-        }}
-      />
-
-      {/* ── Document Drawer ── */}
-      <DocumentDrawer
-        isOpen={isDocumentDrawerOpen}
-        onClose={() => setIsDocumentDrawerOpen(false)}
-        refreshTick={docRefreshTick}
-        onUploadClick={() => {
-          setIsDocumentDrawerOpen(false); // close drawer first
-          setIsUploadModalOpen(true);     // then open upload modal
-        }}
-      />
     </div>
   );
 };

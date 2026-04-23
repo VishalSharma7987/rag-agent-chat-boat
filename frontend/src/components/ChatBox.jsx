@@ -19,7 +19,7 @@ const ChatBox = ({ messages, isLoading }) => {
           </div>
           <div>
             <h2 className="text-3xl font-bold text-gray-800 tracking-tight">How can I help you today?</h2>
-            <p className="text-gray-500 mt-2 text-lg">Uplode PDF to start the conversation.</p>
+            <p className="text-gray-500 mt-2 text-lg">Ask me anything about the reference document.</p>
           </div>
         </div>
       ) : (
