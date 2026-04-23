@@ -1,0 +1,11 @@
+node_modules/
+.env
+logs/
+uploads/
+*.log
+.DS_Store
+
+# Keep storage/files.json tracked (persistent document registry).
+# Ignore any future binary or temp files inside storage/ only.
+storage/*.tmp
+storage/*.bak
